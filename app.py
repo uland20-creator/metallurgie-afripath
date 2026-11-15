@@ -48,7 +48,7 @@ def show_image(name, caption):
 def show_sankey(labels, sources, targets, values, title):
     fig = go.Figure(go.Sankey(node=dict(pad=12, thickness=18, label=labels, color="#1a5276"),
                               link=dict(source=sources, target=targets, value=values)))
-    fig.update_layout(title=title, height=380)
+    fig.update_layout(title=title, height=380, showlegend=True)
     st.plotly_chart(fig, use_container_width=True)
 
 def arrhenius(T_C, Ea_kJ, k0):
@@ -78,7 +78,9 @@ def get_ore_constants(mineral):
     }
     return ores.get(mineral, ores["Hématite"])
 
-def show_market_data():
+def show_interpretation(title, text):
+    with st.expander(f"Interprétation technique : {title}", expanded=False):
+        st.markdown(text)
     st.subheader("Données de marché indicatives (FCFA / t)")
     market = pd.DataFrame({
         "Métal": ["Fer (acier)", "Aluminium", "Manganèse (FeMn)", "Zinc", "Cuivre"],
@@ -375,6 +377,14 @@ if module == "2. Extraction Primaire":
     fig_gran.update_layout(title="Impact de la taille des particules sur le rendement",
                            xaxis_title="Taille (µm)", yaxis_title="Rendement estimé (%)", height=400)
     st.plotly_chart(fig_gran, use_container_width=True)
+    show_interpretation("Granulométrie et rendement", """
+    **Lecture de la courbe :**
+    - Le rendement passe par un optimum autour de 80–120 µm.
+    - En dessous : gains limités et énergie de broyage très élevée.
+    - Au-dessus : la cinétique ralentit car la surface spécifique diminue.
+    
+    **Recommandation :** viser la zone où la pente commence à s’aplatir pour optimiser le compromis rendement / coût énergétique.
+    """)
     
     # Énergie de broyage (Bond simplifié)
     Wi = 14.0  # kWh/t indicatif
@@ -391,6 +401,39 @@ if module == "2. Extraction Primaire":
         st.info("Taille plus grossière → énergie plus faible mais rendement légèrement réduit")
     
     st.caption("L’optimisation consiste à trouver le meilleur compromis entre rendement métallurgique et coût énergétique du broyage.")
+    
+    # ==================== CONDUCTIVITÉ THERMIQUE DES SCORIES ====================
+    st.subheader("Conductivité thermique du laitier")
+    st.markdown("Estimation de la conductivité thermique en fonction de la composition et de la température.")
+    
+    T_cond = st.slider("Température pour conductivité (°C)", 1300, 1600, 1450, key="T_cond")
+    # Modèle simplifié de conductivité (W/m·K)
+    # Base + effet basicité + effet température
+    k_therm = 0.8 + 0.4 * B2 + 0.001 * (T_cond - 1400)
+    k_therm = max(0.5, min(2.5, k_therm))
+    
+    st.metric("Conductivité thermique estimée", f"{k_therm:.2f} W/m·K")
+    
+    T_range_cond = np.linspace(1300, 1600, 30)
+    k_range = 0.8 + 0.4 * B2 + 0.001 * (T_range_cond - 1400)
+    fig_cond = go.Figure(go.Scatter(x=T_range_cond, y=k_range, mode="lines", 
+                                    line=dict(width=3, color="#c0392b"), name="k thermique"))
+    fig_cond.update_layout(title="Conductivité thermique vs Température",
+                           xaxis_title="Température (°C)", yaxis_title="Conductivité (W/m·K)",
+                           height=380, showlegend=True)
+    st.plotly_chart(fig_cond, use_container_width=True)
+    
+    show_interpretation("Conductivité thermique", """
+    **Interprétation :**
+    - La conductivité thermique des laitiers silicatés est généralement faible (0,5 – 2 W/m·K).
+    - Elle augmente légèrement avec la température et la basicité.
+    - Une faible conductivité ralentit les transferts thermiques dans le four et influence le profil de température.
+    
+    Cette valeur est utile pour les bilans thermiques et la modélisation des fours.
+    """)
+    
+    st.latex(r"k_{\text{therm}} \approx 0{,}8 + 0{,}4 \cdot B + 0{,}001 \cdot (T - 1400)")
+    st.caption("Modèle empirique simplifié (B = basicité CaO/SiO₂).")
 
     gangue = sio2 + cao + mgo + impurete
     st.write(f"**{label_main}** : {main:.1f} %  |  **Gangue + impuretés** : {gangue:.1f} %")
@@ -501,70 +544,92 @@ if module == "2. Extraction Primaire":
 
 # ==================== 2. AFFINAGE SECONDAIRE ====================
 elif module == "3. Affinage Secondaire":
-    st.header(f"Affinage Complet – {metal}")
-    show_image("ladle_refining.jpg", "Affinage en poche / four")
+    st.header(f"Affinage Secondaire – {metal}")
+    st.info("Choisissez le métal à affiner. Les étapes et réactifs s’adaptent automatiquement.")
     
-    purity_in = st.slider("Pureté entrée %", 92., 99., 96.5)
-    purity_target = st.slider("Pureté cible %", 98.5, 99.99, 99.7)
-    s_in = st.slider("S entrée (ppm)", 50, 800, 200)
-    s_out = st.slider("S cible (ppm)", 5, 50, 15)
+    # Pureté et impuretés selon le métal
+    if "Fer" in metal:
+        purity_in = st.slider("Pureté entrée %", 92., 99., 96.5)
+        purity_target = st.slider("Pureté cible %", 98.5, 99.99, 99.7)
+        impurity = st.slider("Soufre entrée (ppm)", 50, 800, 200)
+        impurity_target = st.slider("Soufre cible (ppm)", 5, 50, 15)
+        impurity_name = "S"
+    elif "Mn" in metal:
+        purity_in = st.slider("Teneur Mn entrée %", 70., 85., 75.)
+        purity_target = st.slider("Teneur Mn cible %", 78., 90., 82.)
+        impurity = st.slider("C entrée %", 1., 8., 6.5)
+        impurity_target = st.slider("C cible %", 0.5, 2.5, 1.5)
+        impurity_name = "C"
+    elif "Cu" in metal:
+        purity_in = st.slider("Pureté entrée %", 97., 99.5, 98.5)
+        purity_target = st.slider("Pureté cible %", 99.5, 99.99, 99.95)
+        impurity = st.slider("O entrée (ppm)", 100, 2000, 500)
+        impurity_target = st.slider("O cible (ppm)", 10, 100, 30)
+        impurity_name = "O"
+    elif "Zn" in metal:
+        purity_in = st.slider("Pureté entrée %", 98., 99.8, 99.0)
+        purity_target = st.slider("Pureté cible %", 99.5, 99.995, 99.99)
+        impurity = st.slider("Pb entrée (ppm)", 10, 500, 100)
+        impurity_target = st.slider("Pb cible (ppm)", 1, 20, 5)
+        impurity_name = "Pb"
+    elif "Al" in metal:
+        purity_in = st.slider("Pureté entrée %", 99.0, 99.8, 99.5)
+        purity_target = st.slider("Pureté cible %", 99.7, 99.99, 99.85)
+        impurity = st.slider("Fe entrée (ppm)", 100, 2000, 500)
+        impurity_target = st.slider("Fe cible (ppm)", 50, 300, 100)
+        impurity_name = "Fe"
+    else:
+        purity_in = st.slider("Pureté entrée %", 95., 99., 97.)
+        purity_target = st.slider("Pureté cible %", 98., 99.9, 99.5)
+        impurity = st.slider("Impureté principale (ppm)", 50, 1000, 200)
+        impurity_target = st.slider("Impureté cible (ppm)", 5, 50, 20)
+        impurity_name = "Impureté"
     
-    st.subheader("Étapes d’affinage")
-    st.markdown("""
-    1. **Désulfuration** (CaO, Mg, CaC₂)  
-    2. **Déphosphoration** (laitier basique + FeO)  
-    3. **Dégazage** (argon, vide)  
-    4. **Alliage** (FeMn, FeSi, Al, etc.)  
-    5. **Contrôle inclusion** (calcium treatment)
-    """)
-    
-    lime = st.slider("Chaux (kg/t)", 5, 30, 12)
-    argon = st.slider("Argon (Nm³/t)", 0.2, 3.0, 0.8)
+    st.subheader("Étapes d’affinage adaptées")
+    if "Fer" in metal:
+        st.markdown("""
+        1. Désulfuration (CaO, Mg)  
+        2. Déphosphoration  
+        3. Dégazage (argon)  
+        4. Alliage et contrôle des inclusions
+        """)
+    elif "Mn" in metal:
+        st.markdown("""
+        1. Affinage du ferromanganèse  
+        2. Contrôle du carbone  
+        3. Ajustement de la composition  
+        4. Décantation du laitier
+        """)
+    elif "Cu" in metal:
+        st.markdown("""
+        1. Affinage au feu (oxydation des impuretés)  
+        2. Réduction (poling ou gaz)  
+        3. Coulée de anodes  
+        4. Électrolyse (affinage électrolytique)
+        """)
+    elif "Zn" in metal:
+        st.markdown("""
+        1. Distillation ou électrolyse  
+        2. Élimination du plomb et du cadmium  
+        3. Affinage final
+        """)
+    elif "Al" in metal:
+        st.markdown("""
+        1. Affinage électrolytique (cellule à trois couches) ou  
+        2. Traitement au chlore / flux  
+        3. Contrôle des impuretés (Fe, Si)
+        """)
+    else:
+        st.markdown("Étapes d’affinage spécifiques au métal sélectionné.")
     
     if st.button("Simuler affinage"):
-        st.success(f"Pureté finale estimée : **{purity_target} %**")
-        st.write(f"Soufre final : **{s_out} ppm**")
-        st.write(f"Consommation chaux : {lime} kg/t | Argon : {argon} Nm³/t")
-        show_sankey(["Métal brut","Chaux+Alliages","Affinage","Métal affiné","Laitier"],
-                    [0,1,2,2],[2,2,3,4],[1020, lime+8, 1000, 35], "Flux affinage")
-        
-        # Détails supplémentaires
-        st.subheader("Détails de l’affinage")
-        details = pd.DataFrame({
-            "Étape": ["Désulfuration", "Déphosphoration", "Dégazage", "Alliage", "Contrôle inclusions"],
-            "Réactif principal": ["CaO / CaC₂", "CaO + FeO", "Argon / Vide", "FeMn, FeSi, Al", "Calcium"],
-            "Objectif": [f"S → {s_out} ppm", "P bas", "H, N, O bas", "Composition cible", "Modification inclusions"]
-        })
-        st.dataframe(details, hide_index=True)
-        
-        st.metric("Pureté atteinte", f"{purity_target} %")
-        if purity_target >= 99.5:
+        st.success(f"Pureté / teneur finale : **{purity_target} %**")
+        st.write(f"{impurity_name} final : **{impurity_target}**")
+        st.metric("Métal affiné", metal)
+        if purity_target >= 99.5 or ("Mn" in metal and purity_target >= 80):
             st.success("Niveau de pureté élevé atteint")
         else:
             st.info("Pureté intermédiaire")
-        
-        with st.expander("Réactifs chimiques utilisés en affinage"):
-            st.markdown("""
-            **Réactifs courants en affinage secondaire :**
-            
-            - **CaO (chaux)** : désulfuration et déphosphoration  
-              Réaction : CaO + [S] → CaS + [O]
-            
-            - **CaC₂ (carbure de calcium)** : désulfuration puissante
-            
-            - **Mg ou alliages Mg** : désulfuration profonde
-            
-            - **FeO** : déphosphoration (en présence de CaO)
-            
-            - **Argon** : dégazage (H, N) et brassage
-            
-            - **Aluminium** : désoxydation  
-              2Al + 3[O] → Al₂O₃
-            
-            - **Calcium** : modification des inclusions (Al₂O₃ → aluminates de calcium liquides)
-            
-            - **FeMn, FeSi** : alliage et désoxydation partielle
-            """)
 
 # ==================== 3. ÉQUILIBRES THERMODYNAMIQUES ====================
 elif module == "4. Équilibres Thermodynamiques":
@@ -640,6 +705,10 @@ elif module == "5. Cinétiques de Réaction":
     
     k = arrhenius(T, Ea, k0)
     st.latex(r"k = k_0 \exp\left(-\frac{E_a}{RT}\right)")
+    st.markdown("**Équations cinétiques détaillées :**")
+    st.latex(r"\frac{d\alpha}{dt} = k \cdot (1 - \alpha)^n")
+    st.latex(r"t = \frac{1}{k} \ln\left(\frac{1}{1-\alpha}\right) \quad \text{(ordre 1)}")
+    st.caption("Ces équations décrivent l’évolution de la conversion en fonction du temps selon l’ordre de réaction.")
     st.metric("Constante de vitesse k", f"{k:.3e} min⁻¹")
     
     t = np.linspace(0, tmax, 120)
@@ -704,6 +773,12 @@ elif module == "5. Cinétiques de Réaction":
                           xaxis_title="1000/T (K⁻¹)", yaxis_title="ln k",
                           height=420)
     st.plotly_chart(fig_arr, use_container_width=True)
+    show_interpretation("Diagramme d’Arrhenius", """
+    **Lecture :**
+    - La pente de la droite est égale à −Ea/R.
+    - Plus la pente est forte (en valeur absolue), plus l’énergie d’activation est élevée.
+    - Ce diagramme permet de vérifier la cohérence du modèle d’Arrhenius et d’extraire Ea expérimentalement.
+    """)
     
     slope = -Ea * 1000 / 8.314
     st.caption(f"Pente théorique = -Ea/R = {slope:.1f} K")
@@ -728,6 +803,14 @@ elif module == "5. Cinétiques de Réaction":
                            xaxis_title="Température (°C)", yaxis_title="k (min⁻¹)",
                            yaxis_type="log", height=400)
     st.plotly_chart(fig_temp, use_container_width=True)
+    show_interpretation("Impact thermique sur la cinétique", """
+    **Effet de la température :**
+    - La constante de vitesse k augmente exponentiellement avec T (loi d’Arrhenius).
+    - Une augmentation de 50–100 °C peut multiplier k par 2 à 10 selon la valeur de Ea.
+    - Cet effet thermique est l’un des leviers les plus puissants pour accélérer une réaction.
+    
+    Attention : une température trop élevée peut aussi favoriser des réactions secondaires ou dégrader les réfractaires.
+    """)
     
     fig_time = go.Figure()
     fig_time.add_trace(go.Scatter(x=Ts_eff, y=t_target, mode="lines", name="Temps",
@@ -1455,6 +1538,14 @@ elif module == "8. Thermodynamique des Scories":
                            xaxis_title="Température (°C)", yaxis_title="Viscosité (Pa·s)",
                            yaxis_type="log", height=400)
     st.plotly_chart(fig_sens, use_container_width=True)
+    show_interpretation("Viscosité vs Température", """
+    **Interprétation technique :**
+    - La viscosité diminue fortement avec la température (dépendance exponentielle type Arrhenius/Eyring).
+    - En dessous de 0,5 Pa·s : laitier fluide, bonne coulée et séparation métal/laitier.
+    - Au-dessus de 1 Pa·s : risque de problèmes de coulée, inclusions et pertes de métal.
+    
+    Une élévation de 50–100 °C peut diviser la viscosité par 2 ou plus.
+    """)
     
     # ==================== IMPACT DE LA BASICITÉ SUR LA FLUIDITÉ ====================
     st.subheader("Impact de la basicité sur la fluidité")
@@ -1472,6 +1563,14 @@ elif module == "8. Thermodynamique des Scories":
                           xaxis_title="Basicité CaO/SiO₂", yaxis_title="Viscosité (Pa·s)",
                           yaxis_type="log", height=420)
     st.plotly_chart(fig_bas, use_container_width=True)
+    show_interpretation("Impact de la basicité", """
+    **Interprétation :**
+    - Une basicité plus élevée (plus de CaO) casse le réseau silicaté et diminue la viscosité.
+    - L’effet est particulièrement marqué à basse température.
+    - Une basicité trop faible conduit à un laitier visqueux difficile à couler.
+    
+    Zone typique de travail : basicité 1,0 – 1,4 pour un bon compromis fluidité / capacité d’absorption des impuretés.
+    """)
     
     if B2 < 0.9:
         st.warning("Basicité faible → viscosité plus élevée → fluidité réduite")
@@ -1613,6 +1712,14 @@ elif module == "8. Thermodynamique des Scories":
                                 xaxis_title="Température (°C)", yaxis_title="Viscosité (Pa·s)",
                                 yaxis_type="log", height=450)
     st.plotly_chart(fig_comp_visc, use_container_width=True)
+    show_interpretation("Arrhenius vs Eyring", """
+    **Comparaison des modèles :**
+    - Les deux modèles donnent une décroissance exponentielle de la viscosité avec la température.
+    - Eyring est théoriquement plus fondé (théorie de l’état de transition + volume molaire).
+    - Arrhenius est plus simple et souvent suffisant pour des estimations industrielles.
+    
+    L’écart entre les courbes augmente lorsque les énergies d’activation diffèrent.
+    """)
     
     st.markdown("""
     **Différences principales :**

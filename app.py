@@ -2,7 +2,7 @@
 Outil de Simulation Métallurgique
 Extraction • Affinage • Thermodynamique • Cinétiques • Diffusion • Scories • Ellingham • Minerais • Finances
 Auteur : Dr Ulrich Landry Compaoré – Génie Métallurgique – EPO Ouagadougou
-Version 2.0  – Novembre 2026
+Version 2.0 – Novembre 2026
 """
 
 import streamlit as st
@@ -622,10 +622,35 @@ elif module == "3. Affinage Secondaire":
     else:
         st.markdown("Étapes d’affinage spécifiques au métal sélectionné.")
     
+    st.subheader("Type de produit visé")
+    produit = st.radio("Produit après affinage", 
+                       ["Métal pur", "Alliage standard", "Alliage spécial"], horizontal=True)
+    
+    if produit == "Alliage standard":
+        st.info("Exemples : acier au carbone, laiton, bronze, ferromanganèse, etc.")
+        element_alliage = st.selectbox("Élément d’alliage principal", 
+                                        ["C", "Mn", "Si", "Cr", "Ni", "Zn", "Sn", "Al"])
+        teneur_alliage = st.slider(f"Teneur en {element_alliage} (%)", 0.1, 20.0, 2.0)
+    elif produit == "Alliage spécial":
+        st.info("Exemples : aciers inoxydables, superalliages, alliages d’aluminium haute résistance, etc.")
+        element_alliage = st.selectbox("Élément clé", 
+                                        ["Cr", "Ni", "Mo", "Ti", "V", "Nb", "Cu", "Mg"])
+        teneur_alliage = st.slider(f"Teneur en {element_alliage} (%)", 0.5, 30.0, 8.0)
+    else:
+        element_alliage = None
+        teneur_alliage = 0
+    
     if st.button("Simuler affinage"):
         st.success(f"Pureté / teneur finale : **{purity_target} %**")
         st.write(f"{impurity_name} final : **{impurity_target}**")
-        st.metric("Métal affiné", metal)
+        st.metric("Métal de base", metal)
+        
+        if produit != "Métal pur":
+            st.metric("Produit obtenu", f"{produit} ({element_alliage} = {teneur_alliage} %)")
+            st.info(f"Alliage à base de {metal.split()[0]} avec {teneur_alliage} % de {element_alliage}")
+        else:
+            st.metric("Produit obtenu", "Métal de haute pureté")
+        
         if purity_target >= 99.5 or ("Mn" in metal and purity_target >= 80):
             st.success("Niveau de pureté élevé atteint")
         else:
@@ -2077,4 +2102,4 @@ elif module == "10. Réacteurs Catalytiques":
         st.caption("La sélectivité est maximale autour de 850 °C.")
 
 st.markdown("---")
-st.caption("**Dr Ulrich Landry Compaoré** – Génie Métallurgique – EPO Ouagadougou • Application complète unifiée • Novembre 2026")
+st.caption("**Dr Ulrich Landry Compaoré** – Génie Métallurgique – EPO Ouagadougou • Novembre 2026")

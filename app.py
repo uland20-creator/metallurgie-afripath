@@ -1,8 +1,8 @@
 """
-Outil Complet de Simulation Métallurgique
+Outil de Simulation Métallurgique
 Extraction • Affinage • Thermodynamique • Cinétiques • Diffusion • Scories • Ellingham • Minerais • Finances
 Auteur : Dr Ulrich Landry Compaoré – Génie Métallurgique – EPO Ouagadougou
-Version Finale Unifiée – Novembre 2026
+Version 2.0  – Novembre 2026
 """
 
 import streamlit as st

@@ -81,6 +81,8 @@ def get_ore_constants(mineral):
 def show_interpretation(title, text):
     with st.expander(f"Interprétation technique : {title}", expanded=False):
         st.markdown(text)
+
+def show_market_data():
     st.subheader("Données de marché indicatives (FCFA / t)")
     market = pd.DataFrame({
         "Métal": ["Fer (acier)", "Aluminium", "Manganèse (FeMn)", "Zinc", "Cuivre"],
@@ -401,39 +403,6 @@ if module == "2. Extraction Primaire":
         st.info("Taille plus grossière → énergie plus faible mais rendement légèrement réduit")
     
     st.caption("L’optimisation consiste à trouver le meilleur compromis entre rendement métallurgique et coût énergétique du broyage.")
-    
-    # ==================== CONDUCTIVITÉ THERMIQUE DES SCORIES ====================
-    st.subheader("Conductivité thermique du laitier")
-    st.markdown("Estimation de la conductivité thermique en fonction de la composition et de la température.")
-    
-    T_cond = st.slider("Température pour conductivité (°C)", 1300, 1600, 1450, key="T_cond")
-    # Modèle simplifié de conductivité (W/m·K)
-    # Base + effet basicité + effet température
-    k_therm = 0.8 + 0.4 * B2 + 0.001 * (T_cond - 1400)
-    k_therm = max(0.5, min(2.5, k_therm))
-    
-    st.metric("Conductivité thermique estimée", f"{k_therm:.2f} W/m·K")
-    
-    T_range_cond = np.linspace(1300, 1600, 30)
-    k_range = 0.8 + 0.4 * B2 + 0.001 * (T_range_cond - 1400)
-    fig_cond = go.Figure(go.Scatter(x=T_range_cond, y=k_range, mode="lines", 
-                                    line=dict(width=3, color="#c0392b"), name="k thermique"))
-    fig_cond.update_layout(title="Conductivité thermique vs Température",
-                           xaxis_title="Température (°C)", yaxis_title="Conductivité (W/m·K)",
-                           height=380, showlegend=True)
-    st.plotly_chart(fig_cond, use_container_width=True)
-    
-    show_interpretation("Conductivité thermique", """
-    **Interprétation :**
-    - La conductivité thermique des laitiers silicatés est généralement faible (0,5 – 2 W/m·K).
-    - Elle augmente légèrement avec la température et la basicité.
-    - Une faible conductivité ralentit les transferts thermiques dans le four et influence le profil de température.
-    
-    Cette valeur est utile pour les bilans thermiques et la modélisation des fours.
-    """)
-    
-    st.latex(r"k_{\text{therm}} \approx 0{,}8 + 0{,}4 \cdot B + 0{,}001 \cdot (T - 1400)")
-    st.caption("Modèle empirique simplifié (B = basicité CaO/SiO₂).")
 
     gangue = sio2 + cao + mgo + impurete
     st.write(f"**{label_main}** : {main:.1f} %  |  **Gangue + impuretés** : {gangue:.1f} %")
@@ -1356,6 +1325,93 @@ elif module == "11. Bilans Énergétiques & Financiers":
         st.plotly_chart(fig, use_container_width=True)
         st.metric("VAN finale", f"{van_list[-1]/1e6:,.1f} M FCFA")
 
+    # ==================== BILAN THERMIQUE ====================
+    st.subheader("Simulation du bilan thermique")
+    st.markdown("Estimation simplifiée des entrées et sorties de chaleur pour 1 tonne de métal.")
+    
+    T_four = st.slider("Température du four (°C)", 1200, 1700, 1500)
+    chaleur_reaction = st.number_input("Chaleur de réaction (MJ/t)", -500., 2000., 800.)
+    pertes = st.slider("Pertes thermiques (%)", 5, 40, 18)
+    
+    # Calculs simplifiés
+    chaleur_sensible = 1.2 * T_four * 0.8   # estimation
+    chaleur_utile = chaleur_reaction + chaleur_sensible
+    chaleur_totale = chaleur_utile / (1 - pertes/100)
+    rendement_therm = (chaleur_utile / chaleur_totale) * 100 if chaleur_totale > 0 else 0
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Chaleur utile", f"{chaleur_utile:,.0f} MJ/t")
+    col2.metric("Chaleur totale fournie", f"{chaleur_totale:,.0f} MJ/t")
+    col3.metric("Rendement thermique", f"{rendement_therm:.1f} %")
+    
+    # Diagramme simplifié
+    labels_th = ["Apport combustible", "Chaleur utile", "Pertes"]
+    values_th = [chaleur_totale, chaleur_utile, chaleur_totale - chaleur_utile]
+    fig_th = go.Figure(go.Bar(x=labels_th, y=values_th, marker_color=["#e67e22", "#27ae60", "#c0392b"]))
+    fig_th.update_layout(title="Bilan thermique simplifié", yaxis_title="MJ/t", height=380)
+    st.plotly_chart(fig_th, use_container_width=True)
+    
+    show_interpretation("Bilan thermique", """
+    **Interprétation :**
+    - Le rendement thermique indique la part de l’énergie réellement utilisée pour la réaction et le chauffage de la charge.
+    - Des pertes élevées (réfractaires, gaz, rayonnement) réduisent le rendement.
+    - Une meilleure isolation ou une récupération de chaleur sur les fumées améliore le bilan.
+    """)
+    
+    if st.button("Optimiser le rendement énergétique"):
+        # Recommandations selon les pertes et la température
+        if pertes > 25:
+            st.warning("Pertes élevées → priorité à l’isolation et à la récupération de chaleur")
+            gain_potentiel = 8
+        elif pertes > 15:
+            st.info("Pertes moyennes → amélioration possible par récupération sur les fumées")
+            gain_potentiel = 4
+        else:
+            st.success("Pertes déjà bien maîtrisées")
+            gain_potentiel = 1.5
+        
+        if T_four > 1550:
+            st.write("Température élevée → vérifier le surdimensionnement énergétique")
+        
+        rendement_opt = min(92, rendement_therm + gain_potentiel)
+        st.metric("Rendement thermique optimisé", f"{rendement_opt:.1f} %")
+        st.metric("Gain potentiel", f"+{gain_potentiel:.1f} points")
+        st.caption("Optimisation indicative par réduction des pertes et meilleure récupération de chaleur.")
+    
+    st.subheader("Analyse des pertes et récupération de chaleur fatale")
+    T_fumees = st.slider("Température des fumées (°C)", 200, 900, 450)
+    debit_fumees = st.slider("Débit de fumées (Nm³/t)", 500, 4000, 1800)
+    
+    # Estimation chaleur fatale récupérable
+    cp_fumees = 1.4  # kJ/Nm³·°C approximatif
+    chaleur_fatale = debit_fumees * cp_fumees * (T_fumees - 150) / 1000  # MJ/t
+    taux_recup = st.slider("Taux de récupération possible (%)", 20, 70, 40)
+    chaleur_recuperee = chaleur_fatale * taux_recup / 100
+    
+    c1, c2 = st.columns(2)
+    c1.metric("Chaleur fatale disponible", f"{chaleur_fatale:,.0f} MJ/t")
+    c2.metric("Chaleur récupérable", f"{chaleur_recuperee:,.0f} MJ/t")
+    
+    if chaleur_recuperee > 200:
+        st.success("Potentiel de récupération intéressant (préchauffage air, production de vapeur, etc.)")
+    else:
+        st.info("Potentiel de récupération limité")
+    
+    show_interpretation("Récupération de chaleur fatale", """
+    **Sources principales de chaleur fatale :**
+    - Fumées de four
+    - Laitier et métal en fusion
+    - Parois et réfractaires
+    
+    **Voies de valorisation :**
+    - Préchauffage de l’air de combustion
+    - Production de vapeur
+    - Séchage ou préchauffage de la charge
+    - Cycle organique de Rankine (ORC) dans certains cas
+    
+    La récupération sur les fumées est généralement la plus accessible.
+    """)
+
 # ==================== 8. THERMODYNAMIQUE DES SCORIES ====================
 elif module == "8. Thermodynamique des Scories":
     st.header("Thermodynamique des Scories")
@@ -1451,6 +1507,13 @@ elif module == "8. Thermodynamique des Scories":
     log_visc = -3.5 + 4500/(T_visc+273) + 1.2*(1 - B_urbain)
     viscosity = 10**log_visc
     st.metric("Viscosité simulée", f"{viscosity:.2f} Pa·s")
+    
+    # Conductivité thermique
+    st.subheader("Conductivité thermique")
+    T_cond = st.slider("Température (°C)", 1300, 1600, 1450, key="Tcond")
+    k_therm = max(0.4, min(2.2, 0.8 + 0.35 * B2 + 0.0008 * (T_cond - 1400)))
+    st.metric("Conductivité thermique", f"{k_therm:.2f} W/m·K")
+    show_interpretation("Conductivité", "Valeur typique des laitiers silicatés : 0,5 à 2 W/m·K. Influence les transferts thermiques.")
     
     # Courbes de viscosité
     st.subheader("Courbes de viscosité")
@@ -2102,4 +2165,4 @@ elif module == "10. Réacteurs Catalytiques":
         st.caption("La sélectivité est maximale autour de 850 °C.")
 
 st.markdown("---")
-st.caption("**Dr Ulrich Landry Compaoré** – Génie Métallurgique – EPO Ouagadougou • Novembre 2026")
+st.caption("**Dr Ulrich Landry Compaoré** – Génie Métallurgique – EPO Ouagadougou • Octobre 2026")
